@@ -2,6 +2,7 @@
 # coding:utf-8
 import sys
 
+
 # 迭代器有两个基本方法。  iter()和next()
 # 迭代器对象从集合的第一个元素开始访问，直到所有的元素被访问完结束。迭代器只能往前不会后退。
 def iter_action():

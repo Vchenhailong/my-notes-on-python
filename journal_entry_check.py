@@ -22,7 +22,7 @@ class JournalEntryCheck(Exception):
     # 格式：用户名/密码 @服务IP:PORT / SERVICE_NAME
     user = "acct"
     password = "acct_2018"
-    db_ip = "192.168.7.49"
+    db_ip = "192.168.7.50"
     port = 1521
     service_name = "sitpay1"
     ordb = Oracle.connect("{0}/{1}@{2}:{3}/{4}".format(user, password, db_ip, str(port), service_name),
@@ -30,13 +30,16 @@ class JournalEntryCheck(Exception):
     print("数据库信息:%s" % ordb)
 
     def __init__(self):
-        self.date = time.strftime("%Y-%m-%d")
+        self.date = time.strftime("%Y%m%d")
         print("系统日期为：{date}".format(date=self.date))
 
         # TODO: 了解 time, timedate 模块
-        self.account_date = date.today() - timedelta(days=1)   # 此时类型非字符串
+        # 在 oracle 中以数据库的日期，按业务查询会计日则是：" SELECT TO_CHAR(SYSDATE-1,'YYYYmmdd') FROM DUAL; "
+        # 按业务的技术定义，做对应的日期格式化
+        # 另外，获取会计日期的最保险方式，应是查询日切服务表中会计日作为结果
+        self.account_date = date.today() - timedelta(days=1)  # 此时类型非字符串
 
-        print("\033[1;32;0m 会计日期为：{account_date} \033[0m".format(account_date=self.account_date))
+        print("\033[1;32;0m 会计日期为：{account_date} \033[0m".format(account_date=self.account_date.strftime("%Y%m%d")))
 
     @staticmethod
     def is_blank(rowcount):
@@ -55,8 +58,8 @@ class JournalEntryCheck(Exception):
         # TODO:http://cx-oracle.readthedocs.io/en/latest/cursor.html
         cr = self.ordb.cursor()
         # 执行 SQL
-        cr.execute("SELECT 1 FROM ACCT.CORE_ACCOUNT_DETAIL WHERE ACCOUNT_DATE = {account_date}".format(
-            account_date=self.account_date))
+        cr.execute("SELECT 1 FROM ACCT.CORE_ACT_DETAIL WHERE ACCOUNT_DATE = {account_date}".format(
+            account_date=self.account_date.strftime("%Y%m%d")))
         # fetchall() 返回一个元组组成的列表
         cr.fetchall()
         # 读取游标操作后的条目数
@@ -66,8 +69,8 @@ class JournalEntryCheck(Exception):
 
         print("====> Log:当日的主账明细统计条目数为：%s" % m_total)
 
-        cr.execute("SELECT 1 FROM ACCT.CORE_ACCOUNT_INTERIOR_DETAIL WHERE ACCOUNT_DATE = {account_date}".format(
-            account_date=self.account_date))
+        cr.execute("SELECT 1 FROM ACCT.CORE_ACT_INTERIOR_DETAIL WHERE ACCOUNT_DATE = {account_date}".format(
+            account_date=self.account_date.strftime("%Y%m%d")))
         cr.fetchall()
         i_total = cr.rowcount
 
@@ -76,7 +79,7 @@ class JournalEntryCheck(Exception):
         print("====> Log:当日的内部账明细统计条目数为：%s" % i_total)
 
         cr.execute("SELECT 1 FROM ACCT.CORE_TOTAL_DETAIL_TEMP WHERE ACCOUNT_DATE = {account_date}".format(
-            account_date=self.account_date))
+            account_date=self.account_date.strftime("%Y%m%d")))
         cr.fetchall()
         t_total = cr.rowcount
         print("====> Log:当日的总账明细统计条目数为：%s" % t_total)
@@ -98,7 +101,8 @@ class JournalEntryCheck(Exception):
         cr.execute("SELECT 1 FROM (SELECT VOUCHER_LIST_TYPE_CODE \
                                       FROM CORE_TOTAL_DETAIL_TEMP WHERE ACCOUNT_DATE={account_date} AND \
                                       VOUCHER_LIST_TYPE_CODE NOT IN (SELECT VOUCHER_LIST_TYPE_CODE FROM \
-                                      CORE_ACCOUNT_VCHLIST_INFO)) ".format(account_date=self.account_date))
+                                      CORE_ACT_VCHLIST_INFO)) ".format(
+            account_date=self.account_date.strftime("%Y%m%d")))
         cr.fetchall()
         invalid_voucher_type_num = cr.rowcount
         print("====> Log: +业务编码无效数为：%d" % invalid_voucher_type_num)
@@ -110,8 +114,8 @@ class JournalEntryCheck(Exception):
         print("===== Step2.1 +有效性检查之[分录编码] =====")
         cr.execute("SELECT 1 FROM (SELECT VOUCHER_TYPE_CODE \
                                         FROM CORE_TOTAL_DETAIL_TEMP WHERE ACCOUNT_DATE={account_date} AND VOUCHER_TYPE_CODE \
-                                        NOT IN (SELECT VOUCHER_TYPE_CODE FROM CORE_ACCOUNT_VCHCHILD_INFO)) \
-                                        ".format(account_date=self.account_date))
+                                        NOT IN (SELECT VOUCHER_TYPE_CODE FROM CORE_ACT_VCHCHILD_INFO)) \
+                                        ".format(account_date=self.account_date.strftime("%Y%m%d")))
         cr.fetchall()
         invalid_voucher_type_code_num = cr.rowcount
         print("====> Log:分录编码无效数为：%d" % invalid_voucher_type_code_num)
@@ -122,7 +126,7 @@ class JournalEntryCheck(Exception):
 
         print("===== Step2.2  完整性检查之[分录完整] =====")
         # 获取定义的会计分录表的元数据表 metadata
-        cr.execute("SELECT * FROM ACCT.CORE_ACCOUNT_VOUCHER_INFO ORDER BY VOUCHER_LIST_TYPE_CODE")
+        cr.execute("SELECT * FROM ACCT.CORE_ACT_VOUCHER_INFO ORDER BY VOUCHER_LIST_TYPE_CODE")
         result = cr.fetchall()
         __map = {'VOUCHER_LIST_TYPE_CODE': '', 'VOUCHER_ORDER': ''}
         __lst = list()
@@ -133,7 +137,7 @@ class JournalEntryCheck(Exception):
         # 根据会计日，按账传票套流水号检索明细表的数据
         cr.execute("SELECT VOUCHER_LIST_TYPE_CODE, VOUCHER_ORDER, VOUCHER_LIST_SERIAL_NO FROM ACCT.CORE_TOTAL_DETAIL_TEMP WHERE \
                         ACCOUNT_DATE={account_date}  ORDER BY VOUCHER_LIST_SERIAL_NO".format(
-            account_date=self.account_date))
+            account_date=self.account_date.strftime("%Y%m%d")))
         detail_result = cr.fetchall()
         print("====> Log:在会计日当天，明细表的结果集为 %s" % detail_result)
 
@@ -183,7 +187,7 @@ class JournalEntryCheck(Exception):
 
         print("===== Step2.3  异常数据检查，正常情况下应为零条数据 =====")
         cr.execute("SELECT 1 FROM core_total_vchlist_err WHERE ACCOUNT_DATE={account_date}".format(
-            account_date=self.account_date))
+            account_date=self.account_date.strftime("%Y%m%d")))
         cr.fetchall()
         err_num = cr.rowcount
         print("====> Log:完整有效性的异常数为：%d" % err_num)
@@ -200,7 +204,7 @@ class JournalEntryCheck(Exception):
         cr = self.ordb.cursor()
 
         cr.execute("SELECT VOUCHER_SERIAL_NO, CURRENCY, DEBIT_AMOUNT, CREDIT_AMOUNT FROM ACCT.CORE_TOTAL_DETAIL_TEMP \
-              WHERE ACCOUNT_DATE={account_date}".format(account_date=self.account_date))
+              WHERE ACCOUNT_DATE={account_date}".format(account_date=self.account_date.strftime("%Y%m%d")))
 
         data = cr.fetchall()
         row_num = cr.rowcount
@@ -213,9 +217,55 @@ class JournalEntryCheck(Exception):
             else:
                 raise ValueError("\033[1;31;0m 借贷平衡检查异常 \033[0m")
         cr.close()
-        # Step4：内部户余额加工
+
+    # Step4：内部户余额加工
+    def inner_account_blc_check(self):
+        print("==================== Step4 内部户余额检查 ====================")
+        print("===== Step4.1 内部户日账表数据备份 =====")
+        cr = self.ordb.cursor()
+
+        cr.execute(
+            "SELECT 1 FROM ACCT.CORE_ACT_INTERIOR_BILLBAK WHERE \
+            ACCOUNT_DATE=(SELECT TO_CHAR(SYSDATE-1, 'YYYYmmdd') FROM DUAL)")
+        cr.fetchall()
+        back_no = cr.rowcount
+
+        cr.execute(
+            "SELECT 1 FROM ACCT.CORE_ACT_INTERIOR_BILL WHERE \
+            ACCOUNT_DATE=(SELECT TO_CHAR(SYSDATE-1, 'YYYYmmdd') FROM DUAL)")
+        origin_no = cr.rowcount
+
+        if back_no == origin_no:
+            print("====> Log:内部户日账表数据备份正常。备份条目数：%s" % back_no)
+        else:
+            assert ValueError, "备份失败"
+
+        print("===== Step4.2 内部户日账表的上日借方余额和上日贷方余额核查 =====")
+        cr.execute('SELECT DEBIT_BALANCE "当日借方余额", CREDIT_BALANCE "当日贷方余额" \
+                    FROM ACCT.CORE_ACT_INTERIOR_BILLBAK \
+                    WHERE ACCOUNT_DATE=(SELECT TO_CHAR(SYSDATE-1, \'YYYYmmdd\') FROM DUAL)')
+        inner_data_bak = cr.fetchall()
+        cr.rowcount
+
+        cr.execute('SELECT LAST_DEBIT_BALANCE "上日借方余额", LAST_CREDIT_BALANCE "上日贷方余额" \
+                   FROM ACCT.CORE_ACT_INTERIOR_BILL \
+                   WHERE ACCOUNT_DATE=(SELECT TO_CHAR(SYSDATE-1, \'YYYYmmdd\') FROM DUAL)')
+        inner_data = cr.fetchall()
+        if len(inner_data) != 0 and len(inner_data) != 0:
+            if inner_data_bak[0][0] == inner_data[0] and inner_data[1] == inner_data_bak[0][1]:
+                print("内部户日账表的上日借方、贷方余额更新为：%s, %s" % (inner_data[0], inner_data[1]))
+                print("====> Log:内部户日账表数据的上日借贷余额无异常")
+        else:
+            raise ValueError("会计日日终处理的内部户日账借贷余额的值处理错误了")
+
+        print("===== Step4.3 内部户日账表的“当日借方累计发生额”和“当日贷方累计发生额”核查 =====")
+        cr.execute("SELECT SUM_DEBIT_AMOUNT \"内部户借方累计发生额\", LAST_CREDIT_BALANCE \"内部户贷方累计发生额\" \
+                    FROM ACCT.CORE_ACT_INTERIOR_BILL \
+                    WHERE ACCOUNT_DATE=(SELECT TO_CHAR(SYSDATE-1, 'YYYYmmdd') FROM DUAL)")
+        cr.fetchall()
+
         # Step5：总账加工的检查
-        # Step6：总分核对的检查
+        # Step6：总分核对的检查(目前只实现主账户的总账科目和对应分账户的核对）
 
 
 if __name__ == '__main__':
@@ -223,3 +273,4 @@ if __name__ == '__main__':
     t.detail_total_numb_check()
     t.effective_complete_entry_check()
     t.debit_credit_check()
+    t.inner_account_blc_check()
